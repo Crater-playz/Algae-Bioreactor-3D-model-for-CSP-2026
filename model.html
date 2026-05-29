@@ -1,0 +1,283 @@
+
+
+<div id="info-bar" style="font-size:13px;color:var(--color-text-secondary);text-align:center;padding:6px 0 2px;">Drag to rotate · Scroll to zoom · Hover / tap parts for info</div>
+
+<div id="canvas-wrap" style="width:100%;height:540px;border-radius:var(--border-radius-lg);overflow:hidden;position:relative;background:#0d1117;">
+  <canvas id="c" style="display:block;width:100%;height:100%;"></canvas>
+  <div id="tooltip" style="position:absolute;bottom:16px;left:50%;transform:translateX(-50%);background:rgba(13,17,23,0.9);color:#e6edf3;font-size:13px;padding:8px 16px;border-radius:8px;pointer-events:none;opacity:0;transition:opacity 0.2s;max-width:340px;text-align:center;border:0.5px solid rgba(255,255,255,0.14);"></div>
+</div>
+
+<div id="legend" style="display:flex;flex-wrap:wrap;gap:8px;padding:10px 0 4px;justify-content:center;"></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+const canvas=document.getElementById('c'),wrap=document.getElementById('canvas-wrap'),tooltip=document.getElementById('tooltip');
+const renderer=new THREE.WebGLRenderer({canvas,antialias:true,alpha:true});
+renderer.setPixelRatio(Math.min(window.devicePixelRatio,2));
+const scene=new THREE.Scene();
+scene.background=new THREE.Color(0x0d1117);
+scene.fog=new THREE.Fog(0x0d1117,20,42);
+const camera=new THREE.PerspectiveCamera(42,1,0.1,100);
+camera.position.set(7,5.5,10);
+camera.lookAt(0,1.5,0);
+scene.add(new THREE.AmbientLight(0xffffff,0.45));
+const sun=new THREE.DirectionalLight(0xfff4d0,1.2);sun.position.set(8,12,6);scene.add(sun); 
+const fill=new THREE.PointLight(0x90c8ff,0.55,22);fill.position.set(-5,4,4);scene.add(fill);
+function resize(){const w=wrap.clientWidth,h=wrap.clientHeight;renderer.setSize(w,h,false);camera.aspect=w/h;camera.updateProjectionMatrix();}
+
+const parts=[];
+function tag(m,name,desc,color){m.userData={name,desc,color};parts.push(m);return m;}
+
+const R=1.1, H=3.0, BOT=0.45, TOP=0.45, DOME=0.22;
+const waterBot=BOT+DOME*0.4, waterTop=H-TOP, waterH=waterTop-waterBot;
+
+const M={
+  vessel: new THREE.MeshStandardMaterial({color:0x5a9ae0,transparent:true,opacity:0.28,roughness:0.08,metalness:0.05,side:THREE.DoubleSide}),
+  lid:    new THREE.MeshStandardMaterial({color:0x8b6a3a,roughness:0.75,metalness:0.05}),
+  dome:   new THREE.MeshStandardMaterial({color:0xc8b088,roughness:0.4,metalness:0.15,side:THREE.DoubleSide}),
+  water:  new THREE.MeshStandardMaterial({color:0x2b7a3a,transparent:true,opacity:0.55,roughness:0.85}),
+  solar:  new THREE.MeshStandardMaterial({color:0x17335a,roughness:0.2,metalness:0.5}),
+  grid:   new THREE.MeshStandardMaterial({color:0x7ec8f8,roughness:0.3,metalness:0.4}),
+  metal:  new THREE.MeshStandardMaterial({color:0x6a6a6a,roughness:0.4,metalness:0.8}),
+  bat:    new THREE.MeshStandardMaterial({color:0x3a3a3a,roughness:0.6,metalness:0.6}),
+  mcu:    new THREE.MeshStandardMaterial({color:0x1d7a3e,roughness:0.5,metalness:0.2}),
+  sensor: new THREE.MeshStandardMaterial({color:0xdb4a44,roughness:0.4,metalness:0.3}),
+  fan:    new THREE.MeshStandardMaterial({color:0x888888,roughness:0.5,metalness:0.7}),
+  pump:   new THREE.MeshStandardMaterial({color:0x7a3e22,roughness:0.6,metalness:0.35}),
+  tube:   new THREE.MeshStandardMaterial({color:0x222a33,roughness:0.6}),
+  mirror: new THREE.MeshStandardMaterial({color:0xe2ebf4,roughness:0.04,metalness:0.98,side:THREE.DoubleSide}),
+  acrylic:new THREE.MeshStandardMaterial({color:0xbfa570,transparent:true,opacity:0.55,roughness:0.3,side:THREE.DoubleSide}),
+  wire:   new THREE.MeshStandardMaterial({color:0x1a1a1a,roughness:0.6})
+};
+
+const root=new THREE.Group();scene.add(root);
+
+// vessel walls
+const body=new THREE.Mesh(new THREE.CylinderGeometry(R,R,H,48,1,true),M.vessel);
+body.position.y=H/2;
+tag(body,'Transparent acrylic vessel','Main tank, total height around 2.5 m. Water column in the middle, 0.5 m dry compartment at the top for electronics, and a domed-sealed 0.4 m air pocket at the bottom.','#5a9ae0');
+root.add(body);
+
+// lid
+const lid=new THREE.Mesh(new THREE.CylinderGeometry(R+0.04,R+0.04,0.1,32),M.lid);
+lid.position.y=H+0.05;
+tag(lid,'Wood / plastic lid','Top cap, sealed. Mounts the fixed solar panels, the 360° actuator pivot, and the O₂ exit valve.','#8b6a3a');
+root.add(lid);
+
+// base ring
+const baseRing=new THREE.Mesh(new THREE.CylinderGeometry(R+0.05,R+0.15,0.08,32),M.lid);
+baseRing.position.y=0.04;
+tag(baseRing,'Reactor base','Structural ring. Houses the vacuum-pump intakes that draw outside air into the bottom chamber.','#8b6a3a');
+root.add(baseRing);
+
+// dome floor of water column
+const dome=new THREE.Mesh(new THREE.SphereGeometry(R*0.96,32,18,0,Math.PI*2,0,Math.PI/2),M.dome);
+dome.scale.y=DOME/(R*0.96);
+dome.position.y=BOT;
+tag(dome,'Domed pressure floor','Arched divider separating the dry bottom chamber from the water above. Carries the ~15 kPa hydrostatic load in compression — far stronger than a flat plate.','#c8b088');
+root.add(dome);
+
+// water + algae
+const water=new THREE.Mesh(new THREE.CylinderGeometry(R-0.04,R-0.04,waterH,40),M.water);
+water.position.y=waterBot+waterH/2;
+tag(water,'Water + algae','Algae-rich water. Absorbs CO₂ bubbled in from below and releases O₂ through photosynthesis.','#2b7a3a');
+root.add(water);
+
+// TOP AIR SPACE - batteries + microcontroller
+const shelfY=waterTop+0.18;
+const bat1=new THREE.Mesh(new THREE.BoxGeometry(0.36,0.16,0.2),M.bat);
+bat1.position.set(-0.35,shelfY,0.2);
+tag(bat1,'Battery','Rechargeable battery bank in the top dry compartment. Stores solar energy for pumps, fans, sensor, and actuator.','#3a3a3a');
+root.add(bat1);
+const bat2=bat1.clone();bat2.position.x=0.35;
+tag(bat2,'Battery','Second battery unit. Two batteries give redundancy and extend run-time through cloudy periods.','#3a3a3a');
+root.add(bat2);
+
+const mcu=new THREE.Mesh(new THREE.BoxGeometry(0.42,0.06,0.26),M.mcu);
+mcu.position.set(0,shelfY-0.04,-0.3);
+tag(mcu,'Microcontroller','Brain of the system. Reads CO₂ sensor, drives the three vacuum pumps, the fan-bubbler, the actuator, and the mirror-panel deployment.','#1d7a3e');
+root.add(mcu);
+
+// CO2 sensor - SUBMERGED inside tank
+const sensorHousing=new THREE.Mesh(new THREE.CylinderGeometry(0.07,0.07,0.22,14),M.sensor);
+sensorHousing.position.set(0.55,waterTop-0.55,0.2);
+tag(sensorHousing,'CO₂ sensor (submerged)','Inside the tank, hanging from the lid and dipped into the water. Measures dissolved CO₂; signals the controller to open the pumps and the fan-bubbler.','#db4a44');
+root.add(sensorHousing);
+
+const sensorWire=new THREE.Mesh(new THREE.CylinderGeometry(0.007,0.007,0.85,8),M.wire);
+sensorWire.position.set(0.55,waterTop-0.12,0.2);
+root.add(sensorWire);
+
+// TOP: rotating solar panel
+const actuator=new THREE.Mesh(new THREE.CylinderGeometry(0.07,0.07,0.55,14),M.metal);
+actuator.position.y=H+0.38;
+tag(actuator,'360° actuator / pivot','Motorised rotation axis for the central solar panel. Tracks the sun through the day for maximum energy.','#6a6a6a');
+root.add(actuator);
+
+const rotSolar=new THREE.Group();
+rotSolar.position.y=H+0.69;
+const rp=new THREE.Mesh(new THREE.BoxGeometry(1.15,0.04,0.78),M.solar);
+rotSolar.add(tag(rp,'Rotating solar panel','Primary solar panel. Rotates 360° via the actuator to track the sun. Main power source.','#17335a'));
+for(let i=-2;i<=2;i++){
+  const g=new THREE.Mesh(new THREE.BoxGeometry(0.02,0.05,0.78),M.grid);
+  g.position.x=i*0.22;
+  rotSolar.add(g);
+}
+for(let j=-1;j<=1;j++){
+  const g=new THREE.Mesh(new THREE.BoxGeometry(1.15,0.05,0.02),M.grid);
+  g.position.z=j*0.26;
+  rotSolar.add(g);
+}
+root.add(rotSolar);
+
+// 2 FIXED solar panels on top
+for(let s=-1;s<=1;s+=2){
+  const fg=new THREE.Group();
+  fg.position.set(s*(R+0.42),H+0.2,0);
+  fg.rotation.z=s*Math.PI/9;
+  const fp=new THREE.Mesh(new THREE.BoxGeometry(0.78,0.04,0.58),M.solar);
+  fg.add(tag(fp,'Fixed solar panel (top)','One of two fixed solar panels mounted on the lid at a slight tilt. Provides baseline power and backup when the rotating panel is shaded.','#17335a'));
+  for(let i=-1;i<=1;i++){
+    const g=new THREE.Mesh(new THREE.BoxGeometry(0.02,0.05,0.58),M.grid);
+    g.position.x=i*0.26;
+    fg.add(g);
+  }
+  root.add(fg);
+}
+
+// O2 exit vent
+const o2=new THREE.Mesh(new THREE.CylinderGeometry(0.05,0.05,0.25,10),M.sensor);
+o2.position.set(R-0.1,H+0.18,0.42);o2.rotation.z=Math.PI/2;
+tag(o2,'O₂ exit vent','One-way valve through the lid. Releases oxygen produced by photosynthesis.','#db4a44');
+root.add(o2);
+
+// BOTTOM CHAMBER: fan + bubble creator (central)
+const fanBase=new THREE.Mesh(new THREE.CylinderGeometry(0.17,0.17,0.1,16),M.fan);
+fanBase.position.y=0.14;
+tag(fanBase,'Fan + bubble creator','Inside the dry bottom chamber. Pushes air collected from the three vacuum pumps up through a diffuser into the water, producing fine bubbles for CO₂ transfer.','#888888');
+root.add(fanBase);
+
+const bladeGroup=new THREE.Group();bladeGroup.position.y=0.22;
+for(let i=0;i<4;i++){
+  const bl=new THREE.Mesh(new THREE.BoxGeometry(0.3,0.015,0.06),M.fan);
+  bl.rotation.y=i*Math.PI/2;
+  bladeGroup.add(bl);
+}
+root.add(bladeGroup);
+
+// diffuser tube up through the dome
+const diffTube=new THREE.Mesh(new THREE.CylinderGeometry(0.03,0.03,DOME+0.25,10),M.tube);
+diffTube.position.y=BOT+0.05;
+root.add(diffTube);
+const diffuser=new THREE.Mesh(new THREE.SphereGeometry(0.05,12,8),M.fan);
+diffuser.position.y=BOT+DOME+0.1;
+tag(diffuser,'Bubble diffuser head','Porous diffuser sitting inside the water column. Breaks air into fine bubbles that maximise CO₂ dissolution into the algae water.','#888888');
+root.add(diffuser);
+
+// 3 vacuum pumps at 120°
+for(let i=0;i<3;i++){
+  const a=i*(Math.PI*2/3)+Math.PI/6;
+  const x=Math.cos(a)*(R*0.6),z=Math.sin(a)*(R*0.6);
+  const pump=new THREE.Mesh(new THREE.BoxGeometry(0.22,0.2,0.22),M.pump);
+  pump.position.set(x,0.14,z);
+  tag(pump,'Vacuum pump '+(i+1)+' of 3','One of three pumps drawing outside air in at 120° intervals around the base. Triple intake gives high throughput plus redundancy. Air routes up through the diffuser into the water.','#7a3e22');
+  root.add(pump);
+
+  const intake=new THREE.Mesh(new THREE.CylinderGeometry(0.028,0.028,0.3,8),M.tube);
+  intake.position.set(Math.cos(a)*(R+0.05),0.14,Math.sin(a)*(R+0.05));
+  intake.rotation.z=Math.PI/2;intake.rotation.y=-a;
+  root.add(intake);
+
+  const route=new THREE.Mesh(new THREE.CylinderGeometry(0.022,0.022,BOT-0.05,8),M.tube);
+  route.position.set(x*0.45,0.24+(BOT-0.05)/2,z*0.45);
+  root.add(route);
+}
+
+const mani=new THREE.Mesh(new THREE.CylinderGeometry(0.09,0.09,0.06,14),M.metal);
+mani.position.y=BOT-0.02;
+root.add(mani);
+
+// 4 EXTENDING mirror panels from the bottom
+for(let i=0;i<4;i++){
+  const ang=i*(Math.PI*2/4)+Math.PI/4;
+  const yawG=new THREE.Group();yawG.rotation.y=ang;root.add(yawG);
+  const hinge=new THREE.Group();
+  hinge.position.set(R,0.1,0);
+  hinge.rotation.z=-Math.PI/5.5;
+  yawG.add(hinge);
+
+  const apanel=new THREE.Mesh(new THREE.BoxGeometry(1.25,0.035,0.62),M.acrylic);
+  apanel.position.set(0.6,0,0);
+  hinge.add(tag(apanel,'Extending acrylic wing','Transparent acrylic flap hinged at the base of the vessel. Deploys outward when light is low; retracts flush against the vessel when not needed.','#bfa570'));
+
+  const mir=new THREE.Mesh(new THREE.BoxGeometry(1.15,0.012,0.55),M.mirror);
+  mir.position.set(0.6,0.028,0);
+  hinge.add(tag(mir,'Reflective mirror surface','Mirror skin on the upper face of each acrylic wing. Redirects sunlight up into the vessel and onto the solar panels when direct light is weak.','#e2ebf4'));
+
+  const hc=new THREE.Mesh(new THREE.CylinderGeometry(0.03,0.03,0.7,10),M.metal);
+  hc.rotation.x=Math.PI/2;
+  hinge.add(hc);
+}
+
+// ground
+const plane=new THREE.Mesh(new THREE.PlaneGeometry(22,22),new THREE.MeshStandardMaterial({color:0x151b24,roughness:0.95}));
+plane.rotation.x=-Math.PI/2;scene.add(plane);
+
+// interaction
+const ray=new THREE.Raycaster();const mv=new THREE.Vector2();
+let drag=false,pm={x:0,y:0},ry=0.4,rx=0.15;
+function showTip(n,d){tooltip.innerHTML='<b>'+n+'</b><br>'+d;tooltip.style.opacity='1';}
+function hideTip(){tooltip.style.opacity='0';}
+canvas.addEventListener('mousedown',e=>{drag=true;pm={x:e.clientX,y:e.clientY};});
+window.addEventListener('mouseup',()=>drag=false);
+canvas.addEventListener('mousemove',e=>{
+  if(drag){ry+=(e.clientX-pm.x)*0.01;rx+=(e.clientY-pm.y)*0.01;rx=Math.max(-0.55,Math.min(1.0,rx));pm={x:e.clientX,y:e.clientY};}
+  else{
+    const r=canvas.getBoundingClientRect();
+    mv.x=((e.clientX-r.left)/r.width)*2-1;
+    mv.y=-((e.clientY-r.top)/r.height)*2+1;
+    ray.setFromCamera(mv,camera);
+    const h=ray.intersectObjects(parts);
+    if(h.length){canvas.style.cursor='pointer';showTip(h[0].object.userData.name,h[0].object.userData.desc);}
+    else{canvas.style.cursor='grab';hideTip();}
+  }
+});
+canvas.addEventListener('click',e=>{
+  const r=canvas.getBoundingClientRect();
+  mv.x=((e.clientX-r.left)/r.width)*2-1;
+  mv.y=-((e.clientY-r.top)/r.height)*2+1;
+  ray.setFromCamera(mv,camera);
+  const h=ray.intersectObjects(parts);
+  if(h.length)showTip(h[0].object.userData.name,h[0].object.userData.desc);
+});
+canvas.addEventListener('wheel',e=>{camera.position.multiplyScalar(1+e.deltaY*0.001);e.preventDefault();},{passive:false});
+canvas.addEventListener('touchstart',e=>{drag=true;pm={x:e.touches[0].clientX,y:e.touches[0].clientY};},{passive:true});
+canvas.addEventListener('touchend',()=>drag=false,{passive:true});
+canvas.addEventListener('touchmove',e=>{
+  if(drag){
+    ry+=(e.touches[0].clientX-pm.x)*0.015;
+    rx+=(e.touches[0].clientY-pm.y)*0.015;
+    rx=Math.max(-0.55,Math.min(1.0,rx));
+    pm={x:e.touches[0].clientX,y:e.touches[0].clientY};
+  }
+},{passive:true});
+
+const items=[
+  ['Acrylic vessel','#5a9ae0'],['Lid / base','#8b6a3a'],['Water + algae','#2b7a3a'],
+  ['Dome floor','#c8b088'],['Solar panel','#17335a'],['Battery','#3a3a3a'],
+  ['Microcontroller','#1d7a3e'],['CO₂ sensor','#db4a44'],['Fan / blades','#888'],
+  ['Vacuum pump','#7a3e22'],['Mirror','#cfd8e3'],['Acrylic wing','#bfa570']
+];
+const leg=document.getElementById('legend');
+items.forEach(x=>{const d=document.createElement('div');d.style.cssText='display:flex;align-items:center;gap:5px;font-size:12px;color:var(--color-text-secondary);';d.innerHTML='<span style="width:10px;height:10px;border-radius:2px;background:'+x[1]+';flex-shrink:0;"></span>'+x[0];leg.appendChild(d);});
+
+let t=0;
+function anim(){
+  requestAnimationFrame(anim);t++;
+  root.rotation.y=ry;root.rotation.x=rx;
+  rotSolar.rotation.y=t*0.004;
+  bladeGroup.rotation.y=t*0.1;
+  renderer.render(scene,camera);
+}
+resize();window.addEventListener('resize',resize);anim();
+</script>
